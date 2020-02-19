@@ -6,6 +6,7 @@ use sp_std::prelude::*;
 use sp_runtime::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash};
 use frame_support::{
   decl_event, decl_module, decl_storage, dispatch::DispatchResult, print, ensure,
+  traits::{ Currency, ReservableCurrency },
 };
 use system::ensure_signed;
 
@@ -15,7 +16,10 @@ use system::ensure_signed;
 // The module trait
 pub trait Trait: system::Trait {
   type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+  type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 }
+
+type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -70,26 +74,26 @@ decl_storage! {
     // Stores a list of admins who can set config.
     Admins get(admins): map T::AccountId => bool;
     // TCR parameter - minimum deposit.
-    MinDeposit get(min_deposit) config(): Option<T::TokenBalance>;
+    MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
     // TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
     ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
     // TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
     CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
     // The TCR - list of proposals.
-    Listings get(listings): map T::Hash => Listing<T::TokenBalance, T::AccountId, T::BlockNumber>;
+    Listings get(listings): map T::Hash => Listing<BalanceOf<T>, T::AccountId, T::BlockNumber>;
     // To make querying of listings easier, maintaining a list of indexes and corresponding listing hashes.
     ListingCount get(listing_count): u32;
     ListingIndexHash get(index_hash): map u32 => T::Hash;
     // global nonce for poll count.
     PollNonce get(poll_nonce) config(): u32;
     // Challenges.
-    Challenges get(challenges): map u32 => Challenge<T::Hash, T::TokenBalance, T::AccountId, T::BlockNumber>;
+    Challenges get(challenges): map u32 => Challenge<T::Hash, BalanceOf<T>, T::AccountId, T::BlockNumber>;
     // Polls.
-    Polls get(polls): map u32 => Poll<T::Hash, T::TokenBalance>;
+    Polls get(polls): map u32 => Poll<T::Hash, BalanceOf<T>>;
     // Votes.
     // Mapping is between a poll id and a vec of votes.
     // Poll and vote have a 1:n relationship.
-    Votes get(votes): map (u32, T::AccountId) => Vote<T::TokenBalance>;
+    Votes get(votes): map (u32, T::AccountId) => Vote<BalanceOf<T>>;
   }
 }
 
@@ -97,6 +101,7 @@ decl_storage! {
 decl_event!(
   pub enum Event<T>
   	where AccountId = <T as system::Trait>::AccountId,
+	Balance = BalanceOf<T>,
   	Hash = <T as system::Trait>::Hash
   {
     // When a listing is proposed.
@@ -122,23 +127,11 @@ decl_module! {
     // Initialize events for this module.
     fn deposit_event() = default;
 
-    // Initialize the TCR.
-    // Initialize token.
-    // Make sender an admin if it's the owner account set in genesis config.
-    // Owner then has all the tokens and admin rights to the TCR.
-    // They can then distribute tokens in conventional ways.
-    fn init(origin) {
-      let sender = ensure_signed(origin)?;
-      ensure!(sender == Self::owner(), "Only the owner set in genesis config can initialize the TCR");
-      <token::Module<T>>::init(sender.clone())?;
-      <Admins<T>>::insert(sender, true);
-    }
-
     // Propose a listing on the registry.
     // Takes the listing name (data) as a byte vector.
     // Takes deposit as stake backing the listing.
     // Checks if the stake is less than minimum deposit needed.
-    fn propose(origin, data: Vec<u8>, #[compact] deposit: T::TokenBalance) -> DispatchResult {
+    fn propose(origin, data: Vec<u8>, #[compact] deposit: BalanceOf<T>) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // To avoid byte arrays with unlimited length.
@@ -170,8 +163,9 @@ decl_module! {
 
       ensure!(!<Listings<T>>::exists(hashed), "Listing already exists");
 
-      // Deduct the deposit for application.
-      <token::Module<T>>::lock(sender.clone(), deposit, hashed.clone())?;
+      // Reserve the application deposit.
+	  T::Currency::reserve(&sender, deposit)
+	  	.map_err(|_| "Proposer can't afford deposit")?;
 
       <ListingCount>::put(listing_id + 1);
       <Listings<T>>::insert(hashed, listing);
@@ -190,7 +184,7 @@ decl_module! {
     //    a. If the listing exists.
     //    c. If the challenger is not the owner of the listing.
     //    b. If enough deposit is sent for challenge.
-    fn challenge(origin, listing_id: u32, #[compact] deposit: T::TokenBalance) -> DispatchResult {
+    fn challenge(origin, listing_id: u32, deposit: BalanceOf<T>) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       ensure!(<ListingIndexHash<T>>::exists(listing_id), "Listing not found.");
@@ -230,8 +224,9 @@ decl_module! {
         passed: false,
       };
 
-      // Deduct the deposit for challenge.
-      <token::Module<T>>::lock(sender.clone(), deposit, listing_hash)?;
+      // Reserve the deposit for challenge.
+	  T::Currency::reserve(&sender, deposit)
+	    .map_err(|_| "Challenger can't afford the deposit")?;
 
       // Global poll nonce.
       // Helps keep the count of challenges and in maping votes.
@@ -260,7 +255,7 @@ decl_module! {
     // Checks if the listing is challenged, and
     // if the commit stage length has not passed.
     // To keep it simple, we just store the choice as a bool - true: aye; false: nay.
-    fn vote(origin, challenge_id: u32, value: bool, #[compact] deposit: T::TokenBalance) -> DispatchResult {
+    fn vote(origin, challenge_id: u32, value: bool, #[compact] deposit: BalanceOf<T>) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // Check if listing is challenged.
@@ -273,7 +268,8 @@ decl_module! {
       ensure!(challenge.voting_ends > now, "Commit stage length has passed.");
 
       // Deduct the deposit for vote.
-      <token::Module<T>>::lock(sender.clone(), deposit, challenge.listing_hash)?;
+	  T::Currency::reserve(&sender, deposit)
+	    .map_err(|_| "Voter can't afford the deposit")?;
 
       let mut poll_instance = Self::polls(challenge_id);
       // Based on vote value, increase the count of votes (for or against).
@@ -375,7 +371,7 @@ decl_module! {
         Self::deposit_event(RawEvent::Accepted(listing_hash));
       } else {
         // If rejected, give challenge deposit back to the challenger.
-        <token::Module<T>>::unlock(challenge.owner, challenge.deposit, listing_hash)?;
+		T::Currency::unreserve(&challenge.owner, challenge.deposit);
         Self::deposit_event(RawEvent::Rejected(listing_hash));
       }
 
@@ -405,8 +401,7 @@ decl_module! {
             let reward_ratio = challenge.reward_pool.checked_div(&challenge.total_tokens).ok_or("overflow in calculating reward")?;
             let reward = reward_ratio.checked_mul(&vote.deposit).ok_or("overflow in calculating reward")?;
             let total = reward.checked_add(&vote.deposit).ok_or("overflow in calculating reward")?;
-            <token::Module<T>>::unlock(sender.clone(), total, challenge.listing_hash)?;
-
+			T::Currency::unreserve(&sender, total);
             Self::deposit_event(RawEvent::Claimed(sender.clone(), challenge_id));
         }
 
@@ -421,7 +416,7 @@ decl_module! {
     // Only admins can set config.
     // Repeated setting just overrides, for simplicity.
     fn set_config(origin,
-      min_deposit: T::TokenBalance,
+      min_deposit: BalanceOf<T>,
       apply_stage_len: T::BlockNumber,
       commit_stage_len: T::BlockNumber) -> DispatchResult {
 
@@ -460,7 +455,7 @@ decl_module! {
 // Utility and private functions.
 impl<T: Trait> Module<T> {
   // Ensure that a user is an admin.
-  fn ensure_admin(origin: T::Origin) -> Result {
+  fn ensure_admin(origin: T::Origin) -> DispatchResult {
     let sender = ensure_signed(origin)?;
 
     ensure!(<Admins<T>>::exists(&sender), "Access denied. Admin only.");
