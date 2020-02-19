@@ -8,7 +8,7 @@ use frame_support::{
   decl_event, decl_module, decl_storage, dispatch::DispatchResult, print, ensure,
   traits::{ Currency, ReservableCurrency },
 };
-use system::ensure_signed;
+use system::{ensure_signed, ensure_root};
 
 // Read TCR concepts here:
 // https://www.gautamdhameja.com/token-curated-registries-explain-eli5-a5d4cce0ddbe/
@@ -71,8 +71,6 @@ decl_storage! {
   trait Store for Module<T: Trait> as Tcr {
     // Stores the owner in the genesis config.
     Owner get(owner) config(): T::AccountId;
-    // Stores a list of admins who can set config.
-    Admins get(admins): map T::AccountId => bool;
     // TCR parameter - minimum deposit.
     MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
     // TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
@@ -413,14 +411,12 @@ decl_module! {
 
     // Sets the TCR parameters.
     // Currently only min deposit, apply stage length and commit stage length are supported.
-    // Only admins can set config.
-    // Repeated setting just overrides, for simplicity.
     fn set_config(origin,
       min_deposit: BalanceOf<T>,
       apply_stage_len: T::BlockNumber,
       commit_stage_len: T::BlockNumber) -> DispatchResult {
 
-      Self::ensure_admin(origin)?;
+      ensure_root(origin)?;
 
       <MinDeposit<T>>::put(min_deposit);
       <ApplyStageLen<T>>::put(apply_stage_len);
@@ -428,40 +424,6 @@ decl_module! {
 
       Ok(())
     }
-
-    // Add a new admin for the TCR.
-    // Admins can do specific operations.
-    // Set config.
-    fn add_admin(origin, new_admin: T::AccountId) -> DispatchResult {
-      Self::ensure_admin(origin)?;
-
-      <Admins<T>>::insert(new_admin, true);
-      print("New admin added!");
-      Ok(())
-    }
-
-    // Remove an admin.
-    fn remove_admin(origin, admin_to_remove: T::AccountId) -> DispatchResult {
-      Self::ensure_admin(origin)?;
-
-      ensure!(<Admins<T>>::exists(&admin_to_remove), "The admin you are trying to remove does not exist");
-      <Admins<T>>::remove(admin_to_remove);
-      print("Admin removed!");
-      Ok(())
-    }
-  }
-}
-
-// Utility and private functions.
-impl<T: Trait> Module<T> {
-  // Ensure that a user is an admin.
-  fn ensure_admin(origin: T::Origin) -> DispatchResult {
-    let sender = ensure_signed(origin)?;
-
-    ensure!(<Admins<T>>::exists(&sender), "Access denied. Admin only.");
-    ensure!(Self::admins(sender) == true, "Admin is not active");
-
-    Ok(())
   }
 }
 
