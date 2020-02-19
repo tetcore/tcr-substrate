@@ -2376,6 +2376,7 @@ dependencies = [
  "sp-transaction-pool 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=3e651110aa06aa835790df63410a29676243fc54)",
  "sp-version 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=3e651110aa06aa835790df63410a29676243fc54)",
  "substrate-wasm-builder-runner 1.0.4 (git+https://github.com/paritytech/substrate.git?rev=3e651110aa06aa835790df63410a29676243fc54)",
+ "tcr 2.0.0",
 ]
 
 [[package]]

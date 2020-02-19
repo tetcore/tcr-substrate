@@ -1,3 +1,7 @@
+[dependencies.tcr]
+default-features = false
+path = '../tcr'
+
 [dependencies.aura]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'
@@ -187,6 +191,7 @@ std = [
     'system/std',
     'timestamp/std',
     'transaction-payment/std',
+    'tcr/std'
 ]
 
 [package]

@@ -232,6 +232,11 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
+impl tcr::Trait for Runtime {
+	type Event = Event;
+	type Currency = Balances;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -247,6 +252,7 @@ construct_runtime!(
 		TransactionPayment: transaction_payment::{Module, Storage},
 		Sudo: sudo,
 		RandomnessCollectiveFlip: randomness_collective_flip::{Module, Call, Storage},
+		TCR: tcr::{Module, Call, Event<T>, Storage, Config<T>}
 	}
 );
 
