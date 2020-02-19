@@ -1,23 +1,25 @@
-use crate::token;
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use codec::{Decode, Encode};
-use rstd::prelude::*;
-use sr_primitives::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash};
-use support::{
-  decl_event, decl_module, decl_storage, dispatch::Result, print, ensure,
+use sp_std::prelude::*;
+use sp_runtime::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash};
+use frame_support::{
+  decl_event, decl_module, decl_storage, dispatch::DispatchResult, print, ensure,
 };
-use {system::ensure_signed, timestamp};
+use system::ensure_signed;
 
 // Read TCR concepts here:
 // https://www.gautamdhameja.com/token-curated-registries-explain-eli5-a5d4cce0ddbe/
 
 // The module trait
-pub trait Trait: timestamp::Trait + token::Trait {
+pub trait Trait: system::Trait {
   type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Balance, AccountId, timestamp::Moment
+// Generic type parameters - Balance, AccountId, BlockNumber
 pub struct Listing<U, V, W> {
   id: u32,
   data: Vec<u8>,
@@ -30,7 +32,7 @@ pub struct Listing<U, V, W> {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Hash, Balance, AccountId, timestamp::Moment
+// Generic type parameters - Hash, Balance, AccountId, BlockNumber
 pub struct Challenge<T, U, V, W> {
   listing_hash: T,
   deposit: U,
@@ -70,18 +72,18 @@ decl_storage! {
     // TCR parameter - minimum deposit.
     MinDeposit get(min_deposit) config(): Option<T::TokenBalance>;
     // TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
-    ApplyStageLen get(apply_stage_len) config(): Option<T::Moment>;
+    ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
     // TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
-    CommitStageLen get(commit_stage_len) config(): Option<T::Moment>;
+    CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
     // The TCR - list of proposals.
-    Listings get(listings): map T::Hash => Listing<T::TokenBalance, T::AccountId, T::Moment>;
+    Listings get(listings): map T::Hash => Listing<T::TokenBalance, T::AccountId, T::BlockNumber>;
     // To make querying of listings easier, maintaining a list of indexes and corresponding listing hashes.
     ListingCount get(listing_count): u32;
     ListingIndexHash get(index_hash): map u32 => T::Hash;
     // global nonce for poll count.
     PollNonce get(poll_nonce) config(): u32;
     // Challenges.
-    Challenges get(challenges): map u32 => Challenge<T::Hash, T::TokenBalance, T::AccountId, T::Moment>;
+    Challenges get(challenges): map u32 => Challenge<T::Hash, T::TokenBalance, T::AccountId, T::BlockNumber>;
     // Polls.
     Polls get(polls): map u32 => Poll<T::Hash, T::TokenBalance>;
     // Votes.
@@ -93,9 +95,10 @@ decl_storage! {
 
 // Events
 decl_event!(
-  pub enum Event<T> where AccountId = <T as system::Trait>::AccountId, 
-  Balance = <T as token::Trait>::TokenBalance, 
-  Hash = <T as system::Trait>::Hash {
+  pub enum Event<T>
+  	where AccountId = <T as system::Trait>::AccountId,
+  	Hash = <T as system::Trait>::Hash
+  {
     // When a listing is proposed.
     Proposed(AccountId, Hash, Balance),
     // When a listing is challenged.
@@ -135,7 +138,7 @@ decl_module! {
     // Takes the listing name (data) as a byte vector.
     // Takes deposit as stake backing the listing.
     // Checks if the stake is less than minimum deposit needed.
-    fn propose(origin, data: Vec<u8>, #[compact] deposit: T::TokenBalance) -> Result {
+    fn propose(origin, data: Vec<u8>, #[compact] deposit: T::TokenBalance) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // To avoid byte arrays with unlimited length.
@@ -145,9 +148,8 @@ decl_module! {
       ensure!(deposit >= min_deposit, "deposit should be more than min_deposit");
 
       // Set application expiry for the listing.
-      // Using the `Timestamp` SRML module for getting the block timestamp.
       // Generating a future timestamp by adding the apply stage length.
-      let now = <timestamp::Module<T>>::get();
+      let now = <system::Module<T>>::block_number();
       let apply_stage_len = Self::apply_stage_len().ok_or("Apply stage length not set.")?;
       let app_exp = now.checked_add(&apply_stage_len).ok_or("Overflow when setting application expiry.")?;
 
@@ -188,7 +190,7 @@ decl_module! {
     //    a. If the listing exists.
     //    c. If the challenger is not the owner of the listing.
     //    b. If enough deposit is sent for challenge.
-    fn challenge(origin, listing_id: u32, #[compact] deposit: T::TokenBalance) -> Result {
+    fn challenge(origin, listing_id: u32, #[compact] deposit: T::TokenBalance) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       ensure!(<ListingIndexHash<T>>::exists(listing_id), "Listing not found.");
@@ -200,8 +202,8 @@ decl_module! {
       ensure!(listing.owner != sender, "You cannot challenge your own listing.");
       ensure!(deposit >= listing.deposit, "Not enough deposit to challenge.");
 
-      // Get current time.
-      let now = <timestamp::Module<T>>::get();
+      // Get current block height.
+      let now = <system::Module<T>>::block_number();
 
       // Get commit stage length.
       let commit_stage_len = Self::commit_stage_len().ok_or("Commit stage length not set.")?;
@@ -258,7 +260,7 @@ decl_module! {
     // Checks if the listing is challenged, and
     // if the commit stage length has not passed.
     // To keep it simple, we just store the choice as a bool - true: aye; false: nay.
-    fn vote(origin, challenge_id: u32, value: bool, #[compact] deposit: T::TokenBalance) -> Result {
+    fn vote(origin, challenge_id: u32, value: bool, #[compact] deposit: T::TokenBalance) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // Check if listing is challenged.
@@ -267,7 +269,7 @@ decl_module! {
       ensure!(challenge.resolved == false, "Challenge is already resolved.");
 
       // Check commit stage length not passed.
-      let now = <timestamp::Module<T>>::get();
+      let now = <system::Module<T>>::block_number();
       ensure!(challenge.voting_ends > now, "Commit stage length has passed.");
 
       // Deduct the deposit for vote.
@@ -305,13 +307,13 @@ decl_module! {
     // Further checks if apply stage or commit stage has passed.
     // Compares if votes are in favour of whitelisting.
     // Updates the listing status.
-    fn resolve(_origin, listing_id: u32) -> Result {
+    fn resolve(_origin, listing_id: u32) -> DispatchResult {
       ensure!(<ListingIndexHash<T>>::exists(listing_id), "Listing not found.");
 
       let listing_hash = Self::index_hash(listing_id);
       let listing = Self::listings(listing_hash);
 
-      let now = <timestamp::Module<T>>::get();
+      let now = <system::Module<T>>::block_number();
       let challenge;
       let poll;
 
@@ -382,7 +384,7 @@ decl_module! {
     }
 
     // Claim reward for a vote.
-    fn claim_reward(origin, challenge_id: u32) -> Result {
+    fn claim_reward(origin, challenge_id: u32) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // Ensure challenge exists and has been resolved.
@@ -420,8 +422,8 @@ decl_module! {
     // Repeated setting just overrides, for simplicity.
     fn set_config(origin,
       min_deposit: T::TokenBalance,
-      apply_stage_len: T::Moment,
-      commit_stage_len: T::Moment) -> Result {
+      apply_stage_len: T::BlockNumber,
+      commit_stage_len: T::BlockNumber) -> DispatchResult {
 
       Self::ensure_admin(origin)?;
 
@@ -435,7 +437,7 @@ decl_module! {
     // Add a new admin for the TCR.
     // Admins can do specific operations.
     // Set config.
-    fn add_admin(origin, new_admin: T::AccountId) -> Result {
+    fn add_admin(origin, new_admin: T::AccountId) -> DispatchResult {
       Self::ensure_admin(origin)?;
 
       <Admins<T>>::insert(new_admin, true);
@@ -444,7 +446,7 @@ decl_module! {
     }
 
     // Remove an admin.
-    fn remove_admin(origin, admin_to_remove: T::AccountId) -> Result {
+    fn remove_admin(origin, admin_to_remove: T::AccountId) -> DispatchResult {
       Self::ensure_admin(origin)?;
 
       ensure!(<Admins<T>>::exists(&admin_to_remove), "The admin you are trying to remove does not exist");

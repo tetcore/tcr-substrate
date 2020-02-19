@@ -8,21 +8,18 @@ mod chain_spec;
 mod service;
 mod cli;
 
-pub use substrate_cli::{VersionInfo, IntoExit, error};
+pub use sc_cli::{VersionInfo, IntoExit, error};
 
-fn main() {
+fn main() -> Result<(), cli::error::Error> {
 	let version = VersionInfo {
 		name: "Substrate Node",
 		commit: env!("VERGEN_SHA_SHORT"),
 		version: env!("CARGO_PKG_VERSION"),
-		executable_name: "substrate-tcr",
-		author: "gautamdhameja",
-		description: "Substrate Token Curated Registry sample",
+		executable_name: "node-template",
+		author: "Anonymous",
+		description: "Template Node",
 		support_url: "support.anonymous.an",
 	};
 
-	if let Err(e) = cli::run(::std::env::args(), cli::Exit, version) {
-		eprintln!("Fatal error: {}\n\n{:?}", e, e);
-		std::process::exit(1)
-	}
+	cli::run(std::env::args(), cli::Exit, version)
 }
