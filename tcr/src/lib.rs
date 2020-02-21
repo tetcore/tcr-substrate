@@ -17,81 +17,74 @@ use system::{ensure_signed, ensure_root};
 pub trait Trait: system::Trait {
   type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
   type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+  // type ListingId: Hash + Encode + Decode + EncodeLike; //TODO What fucking trait bounds do I need to make this thing a storage map key
 }
 
+type ListingId = u32; //TODO figure out how to put this in the configuration trait.
+
+type ChallengeId = u32;
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
+type AccountIdOf<T> = <T as system::Trait>::AccountId;
+type BlockNumberOf<T> = <T as system::Trait>::BlockNumber;
+type ListingDetailOf<T> = ListingDetail<BalanceOf<T>, AccountIdOf<T>, BlockNumberOf<T>>;
+type ChallengeDetailOf<T> = ChallengeDetail<<T as Trait>::ListingId, BalanceOf<T>, AccountIdOf<T>, BlockNumberOf<T>, VoteOf<T>>;
+type VoteOf<T> = Vote<AccountIdOf<T>, BalanceOf<T>>;
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Balance, AccountId, BlockNumber
-pub struct Listing<U, V, W> {
-  id: u32,
-  data: Vec<u8>,
-  deposit: U,
-  owner: V,
-  application_expiry: W,
-  whitelisted: bool,
-  challenge_id: u32,
+pub struct ListingDetail<Balance, AccountId, BlockNumber> {
+  deposit: Balance,
+  owner: AccountId,
+  application_expiry: BlockNumber,
+  in_registry: bool,
+  challenge_id: ChallengeId,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Hash, Balance, AccountId, BlockNumber
-pub struct Challenge<T, U, V, W> {
-  listing_hash: T,
-  deposit: U,
-  owner: V,
-  voting_ends: W,
-  resolved: bool,
-  reward_pool: U,
-  total_tokens: U,
+pub struct ChallengeDetail<ListingId, Balance, AccountId, BlockNumber, Vote> {
+  listing_id: ListingId,
+  deposit: Balance,
+  owner: AccountId,
+  voting_ends: BlockNumber,
+  votes: Vec<Vote>,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Balance
-pub struct Vote<U> {
-  value: bool,
-  deposit: U,
-  claimed: bool,
+pub struct Vote<AccountId, Balance> {
+  voter: AccountId,
+  aye_or_nay: bool, // true means: I want this item in the registry. false means: I do not want this item in the registry
+  deposit: Balance,
 }
 
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Encode, Decode, Default, Clone, PartialEq)]
-// Generic type parameters - Balance
-pub struct Poll<T, U> {
-  listing_hash: T,
-  votes_for: U,
-  votes_against: U,
-  passed: bool,
-}
 
-// Storage
 decl_storage! {
   trait Store for Module<T: Trait> as Tcr {
-    // Stores the owner in the genesis config.
-    Owner get(owner) config(): T::AccountId;
-    // TCR parameter - minimum deposit.
+    /// TCR parameter - minimum deposit.
     MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
-    // TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
+
+    /// TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
     ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
-    // TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
+
+    /// TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
     CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
-    // The TCR - list of proposals.
-    Listings get(listings): map T::Hash => Listing<BalanceOf<T>, T::AccountId, T::BlockNumber>;
-    // To make querying of listings easier, maintaining a list of indexes and corresponding listing hashes.
-    ListingCount get(listing_count): u32;
-    ListingIndexHash get(index_hash): map u32 => T::Hash;
-    // global nonce for poll count.
-    PollNonce get(poll_nonce) config(): u32;
-    // Challenges.
-    Challenges get(challenges): map u32 => Challenge<T::Hash, BalanceOf<T>, T::AccountId, T::BlockNumber>;
-    // Polls.
-    Polls get(polls): map u32 => Poll<T::Hash, BalanceOf<T>>;
-    // Votes.
-    // Mapping is between a poll id and a vec of votes.
-    // Poll and vote have a 1:n relationship.
-    Votes get(votes): map (u32, T::AccountId) => Vote<BalanceOf<T>>;
+    
+
+    /// All listings and applicants known to the TCR. Inclusion in this map is NOT the same as listing in the registry,
+    /// because this map also includes new applicants (some of which are challenged)
+    Listings get(listings): map ListingId => ListingDetailOf<T>;
+
+    /// The first unused challenge Id. Will become the Id of the next challenge when it is open.
+    NextChallengeId get(next_challenge_id): ChallengeId;
+
+    /// All currently open challenges
+    Challenges get(challenges): map ChallengeId => ChallengeDetailOf<T>;
+
+    /// Mapping from the blocknumber when a challenge expires to its challenge Id. This is used to 
+    /// automatically resolve challenges in `on_finalize`. This storage item could be omitted if
+    /// settling challenges were a mnaully triggered process.
+    ChallengeExpiry get(challenge_expiry): map BlockNumberOf<T> => ChallengeId;
   }
 }
 
@@ -99,27 +92,38 @@ decl_storage! {
 decl_event!(
   pub enum Event<T>
   	where AccountId = <T as system::Trait>::AccountId,
-	Balance = BalanceOf<T>,
-  	Hash = <T as system::Trait>::Hash
+	  Balance = BalanceOf<T>,
+  	// ListingId = ListingIdOf<T>
   {
-    // When a listing is proposed.
-    Proposed(AccountId, Hash, Balance),
-    // When a listing is challenged.
-    Challenged(AccountId, Hash, u32, Balance),
-    // When a challenge is voted on.
-    Voted(AccountId, u32, Balance),
-    // When a challenge is resolved.
-    Resolved(Hash, u32),
-    // When a listing is accepted in the registry.
-    Accepted(Hash),
-    // When a listing is rejected from the registry.
+    /// A user has proposed a new listing
+    Proposed(AccountId, ListingId, Balance),
+
+    /// A user has challenged a listing. The challenged listing may be already listed,
+    /// or an applicant
+    Challenged(AccountId, ListingId, Balance),
+
+    /// A user cast a vote in an already-existing challenge
+    Voted(AccountId, ListingId, bool, Balance),
+
+    /// A challenge has been resolved and the challenged listing included or excluded from the registry.
+    /// This does not guarantee that the status of the challenged listing in the registry has changed.
+    /// For example, a previously-listed item may have passed the challenge, or a new applicant may have
+    /// failed the challenge.
+    Resolved(ListingId, bool),
+
+    /// A new, previously un-registered listing has been added to the Registry
+    Accepted(ListingId),
+
+    /// 
     Rejected(Hash),
     // When a vote reward is claimed for a challenge.
     Claimed(AccountId, u32),
+
+    //TODO MAybe the last few events should be Added, Removed, Rejected, Defended
   }
 );
 
-// Module impl
+
 decl_module! {
   pub struct Module<T: Trait> for enum Call where origin: T::Origin {
     // Initialize events for this module.
@@ -129,7 +133,7 @@ decl_module! {
     // Takes the listing name (data) as a byte vector.
     // Takes deposit as stake backing the listing.
     // Checks if the stake is less than minimum deposit needed.
-    fn propose(origin, data: Vec<u8>, #[compact] deposit: BalanceOf<T>) -> DispatchResult {
+    fn propose(origin, proposed_listing: ListingId, deposit: BalanceOf<T>) -> DispatchResult {
       let sender = ensure_signed(origin)?;
 
       // To avoid byte arrays with unlimited length.
