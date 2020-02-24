@@ -235,6 +235,7 @@ impl sudo::Trait for Runtime {
 impl tcr::Trait for Runtime {
 	type Event = Event;
 	type Currency = Balances;
+	type ListingId = u32; // This is a registry of integers
 }
 
 construct_runtime!(
@@ -252,7 +253,7 @@ construct_runtime!(
 		TransactionPayment: transaction_payment::{Module, Storage},
 		Sudo: sudo,
 		RandomnessCollectiveFlip: randomness_collective_flip::{Module, Call, Storage},
-		TCR: tcr::{Module, Call, Event<T>, Storage, Config<T>}
+		Tcr: tcr::{Module, Call, Event<T>, Storage, Config<T>}
 	}
 );
 
