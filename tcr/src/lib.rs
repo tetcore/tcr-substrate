@@ -240,52 +240,37 @@ decl_module! {
 			Ok(())
 		}
 
-		// // Registers a vote for a particular challenge.
-		// // Checks if the listing is challenged, and
-		// // if the commit stage length has not passed.
-		// // To keep it simple, we just store the choice as a bool - true: aye; false: nay.
-		// fn vote(origin, challenge_id: u32, value: bool, #[compact] deposit: BalanceOf<T>) -> DispatchResult {
-		//	 let sender = ensure_signed(origin)?;
-	//
-		//	 // Check if listing is challenged.
-		//	 ensure!(<Challenges<T>>::exists(challenge_id), "Challenge does not exist.");
-		//	 let challenge = Self::challenges(challenge_id);
-		//	 ensure!(challenge.resolved == false, "Challenge is already resolved.");
-	//
-		//	 // Check commit stage length not passed.
-		//	 let now = <system::Module<T>>::block_number();
-		//	 ensure!(challenge.voting_ends > now, "Commit stage length has passed.");
-	//
-		//	 // Deduct the deposit for vote.
-	//	 T::Currency::reserve(&sender, deposit)
-	//		 .map_err(|_| "Voter can't afford the deposit")?;
-	//
-		//	 let mut poll_instance = Self::polls(challenge_id);
-		//	 // Based on vote value, increase the count of votes (for or against).
-		//	 match value {
-		//		 true => poll_instance.votes_for += deposit,
-		//		 false => poll_instance.votes_against += deposit,
-		//	 }
-	//
-		//	 // Create a new vote instance with the input params.
-		//	 let vote_instance = Vote {
-		//		 value,
-		//		 deposit,
-		//		 claimed: false,
-		//	 };
-	//
-		//	 // Mutate polls collection to update the poll instance.
-		//	 <Polls<T>>::mutate(challenge_id, |poll| *poll = poll_instance);
-	//
-		//	 // Insert new vote into votes collection.
-		//	 <Votes<T>>::insert((challenge_id, sender.clone()), vote_instance);
-	//
-		//	 // Raise the event.
-		//	 Self::deposit_event(RawEvent::Voted(sender, challenge_id, deposit));
-		//	 print("Vote created!");
-		//	 Ok(())
-		// }
-	//
+		/// Registers a vote for a particular challenge.
+		fn vote(origin, listing_id: ListingIdOf<T>, vote_bool: bool, deposit: BalanceOf<T>) -> DispatchResult {
+			let voter = ensure_signed(origin)?;
+
+			// Check listing exists and is challenged.
+			ensure!(<Listings<T>>::exists(&listing_id), "Listing does not exist.");
+			let challenge_id = <Listings<T>>::get(&listing_id).challenge_id;
+			ensure!(challenge_id != None, "Listing is not challenged.");
+			let challenge_id = challenge_id.unwrap();//.expect("Just checked to ensure it's not None; qed");
+
+			// Deduct the deposit for vote.
+			T::Currency::reserve(&voter, deposit)
+				.map_err(|_| "Voter can't afford the deposit")?;
+
+			// Update votes in challenge storage
+			let vote = VoteOf::<T> {
+				voter: voter.clone(),
+				aye_or_nay: vote_bool,
+				deposit: deposit,
+			};
+			let mut challenge = <Challenges<T>>::get(challenge_id);
+			challenge.votes.push(vote);
+
+			// Update storage.
+			<Challenges<T>>::insert(challenge_id, challenge);
+
+			// Raise the event.
+			Self::deposit_event(RawEvent::Voted(voter, challenge_id, vote_bool, deposit));
+			Ok(())
+		}
+
 		// // Resolves the status of a listing.
 		// // Changes the value of whitelisted to either true or false.
 		// // Checks if the listing is challenged or not.
