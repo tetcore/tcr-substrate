@@ -5,7 +5,7 @@ use codec::{Decode, Encode};
 use sp_std::prelude::*;
 use sp_runtime::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash, SimpleArithmetic, Member};
 use frame_support::{
-	decl_event, decl_module, decl_storage, dispatch::DispatchResult, print, ensure, Parameter,
+	decl_event, decl_module, decl_storage, dispatch::{DispatchResult, DispatchError}, print, ensure, Parameter,
 	traits::{ Currency, ReservableCurrency },
 };
 use system::{ensure_signed, ensure_root};
@@ -165,10 +165,33 @@ decl_module! {
 			Ok(())
 		}
 
-		//TODO
-		//fn promote_aplication_to_registry(origin, listing_is: ListingIdOf<T>){
-		//
-		// }
+		/// Promote an unchallenged and matured application to the registry
+		fn promote_aplication_to_registry(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
+			let _ = ensure_signed(origin);
+
+			// Ensure the listing exists
+			ensure!(<Listings<T>>::exists(&listing_id), "No such application to promote");
+
+			// Grab the listing from strage
+			let mut listing = <Listings<T>>::get(&listing_id);
+
+			// Ensure the listing is an unchallenged application ready for promotion
+			ensure!(listing.challenge_id == None, "Cannot promote a challenged listing.");
+			match listing.application_expiry {
+				None => return Err(DispatchError::Other("Cannot promote a listing that is not an application.")),
+				Some(x) if x < <system::Module<T>>::block_number() =>
+					return Err(DispatchError::Other("Too early to promote this application.")),
+				_ => {
+					// Mutate the listing, and make the promotion
+					listing.application_expiry = None;
+					<Listings<T>>::insert(&listing_id, listing);
+
+					// Raise the event
+					Self::deposit_event(RawEvent::Accepted(listing_id));
+					Ok(())
+				}
+			}
+		}
 
 		// Challenge a listing.
 		fn challenge(origin, listing_id: ListingIdOf<T>, deposit: BalanceOf<T>) -> DispatchResult {
