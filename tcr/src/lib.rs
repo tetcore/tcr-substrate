@@ -26,7 +26,7 @@ type AccountIdOf<T> = <T as system::Trait>::AccountId;
 type BlockNumberOf<T> = <T as system::Trait>::BlockNumber;
 type ListingIdOf<T> = <T as Trait>::ListingId;
 type ListingDetailOf<T> = ListingDetail<BalanceOf<T>, AccountIdOf<T>, BlockNumberOf<T>>;
-type ChallengeDetailOf<T> = ChallengeDetail<<T as Trait>::ListingId, BalanceOf<T>, AccountIdOf<T>, BlockNumberOf<T>, VoteOf<T>>;
+type ChallengeDetailOf<T> = ChallengeDetail<<T as Trait>::ListingId, BalanceOf<T>, AccountIdOf<T>, VoteOf<T>>;
 type VoteOf<T> = Vote<AccountIdOf<T>, BalanceOf<T>>;
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -41,11 +41,12 @@ pub struct ListingDetail<Balance, AccountId, BlockNumber> {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
-pub struct ChallengeDetail<ListingId, Balance, AccountId, BlockNumber, Vote> {
+pub struct ChallengeDetail<ListingId, Balance, AccountId, Vote> {
 	listing_id: ListingId,
 	deposit: Balance,
 	owner: AccountId,
-	voting_ends: BlockNumber,
+	total_aye: Balance,
+	total_nay: Balance,
 	votes: Vec<Vote>,
 }
 
@@ -221,7 +222,8 @@ decl_module! {
 				listing_id: listing_id.clone(),
 				deposit: deposit.clone(),
 				owner: challenger.clone(),
-				voting_ends: voting_exp,
+				total_aye: 0.into(),
+				total_nay: 0.into(),
 				votes: Vec::new(),
 			};
 
@@ -271,120 +273,6 @@ decl_module! {
 			Ok(())
 		}
 
-		// // Resolves the status of a listing.
-		// // Changes the value of whitelisted to either true or false.
-		// // Checks if the listing is challenged or not.
-		// // Further checks if apply stage or commit stage has passed.
-		// // Compares if votes are in favour of whitelisting.
-		// // Updates the listing status.
-		// fn resolve(_origin, listing_id: u32) -> DispatchResult {
-		//	 ensure!(<ListingIndexHash<T>>::exists(listing_id), "Listing not found.");
-	//
-		//	 let listing_hash = Self::index_hash(listing_id);
-		//	 let listing = Self::listings(listing_hash);
-	//
-		//	 let now = <system::Module<T>>::block_number();
-		//	 let challenge;
-		//	 let poll;
-	//
-		//	 // Check if listing is challenged.
-		//	 if listing.challenge_id > 0 {
-		//		 // Challenge.
-		//		 challenge = Self::challenges(listing.challenge_id);
-		//		 poll = Self::polls(listing.challenge_id);
-	//
-		//		 // Check commit stage length has passed.
-		//		 ensure!(challenge.voting_ends < now, "Commit stage length has not passed.");
-		//	 } else {
-		//		 // No challenge.
-		//		 // Check if apply stage length has passed.
-		//		 ensure!(listing.application_expiry < now, "Apply stage length has not passed.");
-	//
-		//		 // Update listing status.
-		//		 <Listings<T>>::mutate(listing_hash, |listing|
-		//		 {
-		//			 listing.whitelisted = true;
-		//		 });
-	//
-		//		 Self::deposit_event(RawEvent::Accepted(listing_hash));
-		//		 return Ok(());
-		//	 }
-	//
-		//	 let mut whitelisted = false;
-	//
-		//	 // Mutate polls collection to update the poll instance.
-		//	 <Polls<T>>::mutate(listing.challenge_id, |poll| {
-		//		 if poll.votes_for >= poll.votes_against {
-		//				 poll.passed = true;
-		//				 whitelisted = true;
-		//		 } else {
-		//				 poll.passed = false;
-		//		 }
-		//	 });
-	//
-		//	 // Update listing status.
-		//	 <Listings<T>>::mutate(listing_hash, |listing| {
-		//		 listing.whitelisted = whitelisted;
-		//		 listing.challenge_id = 0;
-		//	 });
-	//
-		//	 // Update challenge.
-		//	 <Challenges<T>>::mutate(listing.challenge_id, |challenge| {
-		//		 challenge.resolved = true;
-		//		 if whitelisted == true {
-		//			 challenge.total_tokens = poll.votes_for;
-		//			 challenge.reward_pool = challenge.deposit + poll.votes_against;
-		//		 } else {
-		//			 challenge.total_tokens = poll.votes_against;
-		//			 challenge.reward_pool = listing.deposit + poll.votes_for;
-		//		 }
-		//	 });
-	//
-		//	 // Raise appropriate event as per whitelisting status.
-		//	 if whitelisted == true {
-		//		 Self::deposit_event(RawEvent::Accepted(listing_hash));
-		//	 } else {
-		//		 // If rejected, give challenge deposit back to the challenger.
-	// 	T::Currency::unreserve(&challenge.owner, challenge.deposit);
-		//		 Self::deposit_event(RawEvent::Rejected(listing_hash));
-		//	 }
-	//
-		//	 Self::deposit_event(RawEvent::Resolved(listing_hash, listing.challenge_id));
-		//	 Ok(())
-		// }
-	//
-		// // Claim reward for a vote.
-		// fn claim_reward(origin, challenge_id: u32) -> DispatchResult {
-		//	 let sender = ensure_signed(origin)?;
-	//
-		//	 // Ensure challenge exists and has been resolved.
-		//	 ensure!(<Challenges<T>>::exists(challenge_id), "Challenge not found.");
-		//	 let challenge = Self::challenges(challenge_id);
-		//	 ensure!(challenge.resolved == true, "Challenge is not resolved.");
-	//
-		//	 // Get the poll and vote instances.
-		//	 // Reward depends on poll passed status and vote value.
-		//	 let poll = Self::polls(challenge_id);
-		//	 let vote = Self::votes((challenge_id, sender.clone()));
-	//
-		//	 // Ensure vote reward is not already claimed.
-		//	 ensure!(vote.claimed == false, "Vote reward has already been claimed.");
-	//
-		//	 // If winning party, calculate reward and transfer.
-		//	 if poll.passed == vote.value {
-		//				 let reward_ratio = challenge.reward_pool.checked_div(&challenge.total_tokens).ok_or("overflow in calculating reward")?;
-		//				 let reward = reward_ratio.checked_mul(&vote.deposit).ok_or("overflow in calculating reward")?;
-		//				 let total = reward.checked_add(&vote.deposit).ok_or("overflow in calculating reward")?;
-	// 		T::Currency::unreserve(&sender, total);
-		//				 Self::deposit_event(RawEvent::Claimed(sender.clone(), challenge_id));
-		//		 }
-	//
-		//		 // Update vote reward claimed status.
-		//		 <Votes<T>>::mutate((challenge_id, sender), |vote| vote.claimed = true);
-	//
-		//	 Ok(())
-		// }
-
 		// Sets the TCR parameters.
 		// Currently only min deposit, apply stage length and commit stage length are supported.
 		fn set_config(
@@ -401,6 +289,41 @@ decl_module! {
 			<CommitStageLen<T>>::put(commit_stage_len);
 
 			Ok(())
+		}
+
+		// Resolves challenges that expire during this block
+		fn on_finalize(now: T::BlockNumber) {
+
+			// If no challenges are ending, return early
+			if !<ChallengeExpiry<T>>::exists(now) {
+				return ();
+			}
+
+			let challenge_ids = <ChallengeExpiry<T>>::get(now);
+			<ChallengeExpiry<T>>::remove(now);
+
+			for challenge_id in challenge_ids.iter() {
+				// Grab the challnege and the listing
+				let challenge = <Challenges<T>>::get(&challenge_id);
+				<Challenges<T>>::remove(&challenge_id);
+				let mut listing = <Listings<T>>::get(challenge.listing_id);
+
+				// Count the vote
+				let passed = challenge.total_aye > challenge.total_nay;
+				if passed {
+					// slash challenger's deposit
+					// add item to registry
+				} else {
+					// slash owner's deposit
+					// release challenger's deposit
+					// remove item fro mregistry
+				}
+
+				// Loop through votes releasing or slashing as necessary
+				for vote in challenge.votes.iter() {
+					//TODO
+				}
+			}
 		}
 	}
 }
