@@ -5,7 +5,7 @@ use codec::{Decode, Encode};
 use sp_std::prelude::*;
 use sp_runtime::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash, SimpleArithmetic, Member};
 use frame_support::{
-	decl_event, decl_module, decl_storage, dispatch::{DispatchResult, DispatchError}, print, ensure, Parameter,
+	decl_event, decl_module, decl_storage, dispatch::{DispatchResult, DispatchError}, ensure, Parameter,
 	traits::{ Currency, ReservableCurrency },
 };
 use system::{ensure_signed, ensure_root};
@@ -384,22 +384,24 @@ decl_module! {
 	//
 		//	 Ok(())
 		// }
-	//
-		// // Sets the TCR parameters.
-		// // Currently only min deposit, apply stage length and commit stage length are supported.
-		// fn set_config(origin,
-		//	 min_deposit: BalanceOf<T>,
-		//	 apply_stage_len: T::BlockNumber,
-		//	 commit_stage_len: T::BlockNumber) -> DispatchResult {
-	//
-		//	 ensure_root(origin)?;
-	//
-		//	 <MinDeposit<T>>::put(min_deposit);
-		//	 <ApplyStageLen<T>>::put(apply_stage_len);
-		//	 <CommitStageLen<T>>::put(commit_stage_len);
-	//
-		//	 Ok(())
-		// }
+
+		// Sets the TCR parameters.
+		// Currently only min deposit, apply stage length and commit stage length are supported.
+		fn set_config(
+			origin,
+			min_deposit: BalanceOf<T>,
+			apply_stage_len: T::BlockNumber,
+			commit_stage_len: T::BlockNumber
+		) -> DispatchResult {
+
+			ensure_root(origin)?;
+
+			<MinDeposit<T>>::put(min_deposit);
+			<ApplyStageLen<T>>::put(apply_stage_len);
+			<CommitStageLen<T>>::put(commit_stage_len);
+
+			Ok(())
+		}
 	}
 }
 
