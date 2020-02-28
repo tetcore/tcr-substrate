@@ -402,11 +402,22 @@ mod tests {
 		let mut t = system::GenesisConfig::default()
 			.build_storage::<Test>()
 			.unwrap();
+		let _ = balances::GenesisConfig::<Test>{
+			balances: vec![
+				(1, 1000000),
+				(2, 1000000),
+				(3, 1000000),
+				(4, 1000000),
+			],
+			vesting: vec![],
+		}.assimilate_storage(&mut t).unwrap();
+	
 		GenesisConfig::<Test> {
 			min_deposit: 100,
 			apply_stage_len: 10,
 			commit_stage_len: 10,
 		}.assimilate_storage(&mut t).unwrap();
+
 		t.into()
 	}
 
@@ -440,7 +451,7 @@ mod tests {
 				101
 			));
 			assert_noop!(
-				Tcr::challenge(Origin::signed(1), 0, 101),
+				Tcr::challenge(Origin::signed(1), 1, 101),
 				"You cannot challenge your own listing."
 			);
 		});
@@ -454,7 +465,7 @@ mod tests {
 				1,
 				101
 			));
-			assert_ok!(Tcr::challenge(Origin::signed(2), 0, 101));
+			assert_ok!(Tcr::challenge(Origin::signed(2), 1, 101));
 		});
 	}
 }
