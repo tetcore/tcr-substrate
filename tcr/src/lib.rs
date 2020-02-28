@@ -58,8 +58,6 @@ pub struct Vote<AccountId, Balance> {
 	deposit: Balance,
 }
 
-
-
 decl_storage! {
 	trait Store for Module<T: Trait> as Tcr {
 		/// TCR parameter - minimum deposit.
@@ -123,7 +121,6 @@ decl_event!(
 		//TODO MAybe the last few events should be Added, Removed, Rejected, Defended
 	}
 );
-
 
 decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
@@ -332,14 +329,9 @@ decl_module! {
 mod tests {
 	use super::*;
 
-	use primitives::{Blake2Hasher, H256};
-	use runtime_io::with_externalities;
-	use runtime_primitives::{
-		testing::{Digest, DigestItem, Header, UintAuthorityId},
-		traits::{BlakeTwo256, IdentityLookup},
-		BuildStorage,
-	};
-	use support::{assert_noop, assert_ok, impl_outer_origin};
+	use sp_core::H256;
+	use sp_runtime::{Perbill, traits::{BlakeTwo256, IdentityLookup}, testing::Header};
+	use frame_support::{impl_outer_origin, assert_ok, assert_noop, parameter_types, weights::Weight};
 
 	impl_outer_origin! {
 		pub enum Origin for Test {}
@@ -350,89 +342,90 @@ mod tests {
 	// configuration traits of modules we want to use.
 	#[derive(Clone, Eq, PartialEq)]
 	pub struct Test;
+	parameter_types! {
+		pub const BlockHashCount: u64 = 250;
+		pub const MaximumBlockWeight: Weight = 1024;
+		pub const MaximumBlockLength: u32 = 2 * 1024;
+		pub const AvailableBlockRatio: Perbill = Perbill::one();
+	}
 	impl system::Trait for Test {
 		type Origin = Origin;
 		type Index = u64;
+		type Call = ();
 		type BlockNumber = u64;
 		type Hash = H256;
 		type Hashing = BlakeTwo256;
-		type Digest = Digest;
 		type AccountId = u64;
-		type Lookup = IdentityLookup<u64>;
+		type Lookup = IdentityLookup<Self::AccountId>;
 		type Header = Header;
 		type Event = ();
-		type Log = DigestItem;
+		type BlockHashCount = BlockHashCount;
+		type MaximumBlockWeight = MaximumBlockWeight;
+		type AvailableBlockRatio = AvailableBlockRatio;
+		type MaximumBlockLength = MaximumBlockLength;
+		type Version = ();
+		type ModuleToIndex = ();
 	}
-	impl consensus::Trait for Test {
-		type Log = DigestItem;
-		type SessionKey = UintAuthorityId;
-		type InherentOfflineReport = ();
+	parameter_types! {
+		pub const ExistentialDeposit: u64 = 500;
+		pub const TransferFee: u64 = 0;
+		pub const CreationFee: u64 = 0;
 	}
-	impl token::Trait for Test {
+	impl balances::Trait for Test {
+		type Balance = u64;
+		type OnFreeBalanceZero = ();
+		type DustRemoval = ();
 		type Event = ();
-		type TokenBalance = u64;
+		type ExistentialDeposit = ExistentialDeposit;
+		type TransferFee = TransferFee;
+		type CreationFee = CreationFee;
+		type OnNewAccount = ();
+		type TransferPayment = ();
+	}
+	parameter_types! {
+		pub const MinimumPeriod: u64 = 5;
 	}
 	impl timestamp::Trait for Test {
 		type Moment = u64;
 		type OnTimestampSet = ();
+		type MinimumPeriod = MinimumPeriod;
 	}
 	impl Trait for Test {
 		type Event = ();
+		type ListingId = u32;
+		type Currency = balances::Module<Self>;
 	}
 	type Tcr = Module<Test>;
-	type Token = token::Module<Test>;
 
 	// Builds the genesis config store and sets mock values.
-	fn new_test_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
-		let mut t = system::GenesisConfig::<Test>::default()
-			.build_storage()
-			.unwrap()
-			.0;
-		t.extend(
-			token::GenesisConfig::<Test> { total_supply: 1000 }
-				.build_storage()
-				.unwrap()
-				.0,
-		);
-		t.extend(
-			GenesisConfig::<Test> {
-				owner: 1,
-				min_deposit: 100,
-				apply_stage_len: 10,
-				commit_stage_len: 10,
-				poll_nonce: 1,
-			}
-			.build_storage()
-			.unwrap()
-			.0,
-		);
+	fn new_test_ext() -> sp_io::TestExternalities {
+		let mut t = system::GenesisConfig::default()
+			.build_storage::<Test>()
+			.unwrap();
+		GenesisConfig::<Test> {
+			min_deposit: 100,
+			apply_stage_len: 10,
+			commit_stage_len: 10,
+		}.assimilate_storage(&mut t).unwrap();
 		t.into()
 	}
 
 	#[test]
 	fn should_fail_low_deposit() {
-		with_externalities(&mut new_test_ext(), || {
+		new_test_ext().execute_with(|| {
 			assert_noop!(
-				Tcr::propose(Origin::signed(1), "ListingItem1".as_bytes().into(), 99),
+				Tcr::propose(Origin::signed(1), 1, 99),
 				"deposit should be more than min_deposit"
 			);
 		});
 	}
 
 	#[test]
-	fn should_init() {
-		with_externalities(&mut new_test_ext(), || {
-			assert_ok!(Tcr::init(Origin::signed(1)));
-		});
-	}
-
-	#[test]
 	fn should_pass_propose() {
-		with_externalities(&mut new_test_ext(), || {
-			assert_ok!(Tcr::init(Origin::signed(1)));
+		new_test_ext().execute_with(|| {
 			assert_ok!(Tcr::propose(
 				Origin::signed(1),
-				"ListingItem1".as_bytes().into(),
+				1,
 				101
 			));
 		});
@@ -440,11 +433,10 @@ mod tests {
 
 	#[test]
 	fn should_fail_challenge_same_owner() {
-		with_externalities(&mut new_test_ext(), || {
-			assert_ok!(Tcr::init(Origin::signed(1)));
+		new_test_ext().execute_with(|| {
 			assert_ok!(Tcr::propose(
 				Origin::signed(1),
-				"ListingItem1".as_bytes().into(),
+				1,
 				101
 			));
 			assert_noop!(
@@ -456,14 +448,12 @@ mod tests {
 
 	#[test]
 	fn should_pass_challenge() {
-		with_externalities(&mut new_test_ext(), || {
-			assert_ok!(Tcr::init(Origin::signed(1)));
+		new_test_ext().execute_with(|| {
 			assert_ok!(Tcr::propose(
 				Origin::signed(1),
-				"ListingItem1".as_bytes().into(),
+				1,
 				101
 			));
-			assert_ok!(Token::transfer(Origin::signed(1), 2, 200));
 			assert_ok!(Tcr::challenge(Origin::signed(2), 0, 101));
 		});
 	}
