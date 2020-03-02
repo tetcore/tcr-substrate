@@ -385,11 +385,6 @@ mod tests {
 	parameter_types! {
 		pub const MinimumPeriod: u64 = 5;
 	}
-	impl timestamp::Trait for Test {
-		type Moment = u64;
-		type OnTimestampSet = ();
-		type MinimumPeriod = MinimumPeriod;
-	}
 	impl Trait for Test {
 		type Event = ();
 		type ListingId = u32;
@@ -411,7 +406,7 @@ mod tests {
 			],
 			vesting: vec![],
 		}.assimilate_storage(&mut t).unwrap();
-	
+
 		GenesisConfig::<Test> {
 			min_deposit: 100,
 			apply_stage_len: 10,
