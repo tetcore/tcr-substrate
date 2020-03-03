@@ -5,7 +5,7 @@ use codec::{Decode, Encode};
 use sp_std::prelude::*;
 use sp_runtime::traits::CheckedAdd;
 use frame_support::{
-	decl_event, decl_module, decl_storage, dispatch::{DispatchResult, DispatchError}, ensure, Parameter,
+	decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure, Parameter,
 	traits::{ Currency, ReservableCurrency },
 };
 use system::{ensure_signed, ensure_root};
@@ -160,7 +160,7 @@ decl_module! {
 		}
 
 		/// Promote an unchallenged and matured application to the registry
-		fn promote_application_to_registry(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
+		fn promote_application(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
 			let _ = ensure_signed(origin);
 
 			// Ensure the listing exists
@@ -171,20 +171,19 @@ decl_module! {
 
 			// Ensure the listing is an unchallenged application ready for promotion
 			ensure!(listing.challenge_id == None, "Cannot promote a challenged listing.");
-			match listing.application_expiry {
-				None => return Err(DispatchError::Other("Cannot promote a listing that is not an application.")),
-				Some(x) if x < <system::Module<T>>::block_number() =>
-					return Err(DispatchError::Other("Too early to promote this application.")),
-				_ => {
-					// Mutate the listing, and make the promotion
-					listing.application_expiry = None;
-					<Listings<T>>::insert(&listing_id, listing);
+			ensure!(listing.application_expiry != None, "Cannot promote a listing that is not an application.");
 
-					// Raise the event
-					Self::deposit_event(RawEvent::Accepted(listing_id));
-					Ok(())
-				}
-			}
+			let expiry = listing.application_expiry.expect("Just checked that expiry is some; qed");
+			let now = <system::Module<T>>::block_number();
+			ensure!(expiry <= now, "Too early to promote this application.");
+
+			// Mutate the listing, and make the promotion
+			listing.application_expiry = None;
+			<Listings<T>>::insert(&listing_id, listing);
+
+			// Raise the event
+			Self::deposit_event(RawEvent::Accepted(listing_id));
+			Ok(())
 		}
 
 		/// Challenge a listing
@@ -491,36 +490,52 @@ mod tests {
 
 	#[test]
 	fn cant_promote_too_early() {
-
+		new_test_ext().execute_with(|| {
+			assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+			assert_noop!(Tcr::promote_application(Origin::signed(1), 1),
+			"Too early to promote this application.");
+		});
 	}
 
 	#[test]
 	fn cant_promote_challenged_proposal() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 
 	#[test]
 	fn can_promote_unchallenged_proposal() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 
 	#[test]
 	fn aye_vote_works_correctly() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 
 	#[test]
 	fn nay_vote_works_correctly() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 
 	#[test]
 	fn successfully_challenged_listings_are_removed() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 
 	#[test]
 	fn unsuccessfully_challenged_listings_are_kept() {
+		new_test_ext().execute_with(|| {
 
+		});
 	}
 }
