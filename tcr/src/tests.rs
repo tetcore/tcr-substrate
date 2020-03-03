@@ -38,7 +38,7 @@ impl system::Trait for Test {
 	type ModuleToIndex = ();
 }
 parameter_types! {
-	pub const ExistentialDeposit: u64 = 500;
+	pub const ExistentialDeposit: u64 = 1;
 	pub const TransferFee: u64 = 0;
 	pub const CreationFee: u64 = 0;
 }
@@ -72,10 +72,10 @@ fn new_test_ext() -> sp_io::TestExternalities {
 		.unwrap();
 	let _ = balances::GenesisConfig::<Test>{
 		balances: vec![
-			(1, 1000000),
-			(2, 1000000),
-			(3, 1000000),
-			(4, 1000000),
+			(1, 1000_000),
+			(2, 1000_000),
+			(3, 1000_000),
+			(4, 1000_000),
 		],
 		vesting: vec![],
 	}.assimilate_storage(&mut t).unwrap();
@@ -102,14 +102,16 @@ fn should_fail_low_deposit() {
 #[test]
 fn should_pass_propose() {
 	new_test_ext().execute_with(|| {
+		// Make the proposal
 		assert_ok!(Tcr::propose(
 			Origin::signed(1),
 			1,
-			101
+			100
 		));
 
 		// Ensure the proper balance has been reserved
-		// assert_eq!(Balances::reserved_balance(1), 101)
+		assert_eq!(Balances::free_balance(1), 999_900);
+		assert_eq!(Balances::reserved_balance(1), 100);
 	});
 }
 
@@ -122,7 +124,7 @@ fn should_fail_challenge_same_owner() {
 			101
 		));
 		assert_noop!(
-			Tcr::challenge(Origin::signed(1), 1, 101),
+			Tcr::challenge(Origin::signed(1), 1, 100),
 			"You cannot challenge your own listing."
 		);
 	});
@@ -172,26 +174,35 @@ fn can_promote_unchallenged_proposal() {
 #[test]
 fn aye_vote_works_correctly() {
 	new_test_ext().execute_with(|| {
-		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 		assert_ok!(Tcr::vote(Origin::signed(1), 1, true, 50));
 
-		assert_eq!(Tcr::challenges(0).total_aye, 50);
-		assert_eq!(Tcr::challenges(0).total_nay, 0);
-		// assert_eq!(Balances::reserved_balance(1), 101 + 50);
+		// Ensure the challenges struct has been updated properly
+		assert_eq!(Tcr::challenges(0).total_aye, 100 + 50);
+		assert_eq!(Tcr::challenges(0).total_nay, 300);
+
+		// Ensure the proper balances have been reserved
+		assert_eq!(Balances::reserved_balance(1), 100 + 50);
+		assert_eq!(Balances::reserved_balance(2), 300);
 	});
 }
 
 #[test]
 fn nay_vote_works_correctly() {
 	new_test_ext().execute_with(|| {
-		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 		assert_ok!(Tcr::vote(Origin::signed(3), 1, false, 50));
 
-		assert_eq!(Tcr::challenges(0).total_aye, 0);
-		assert_eq!(Tcr::challenges(0).total_nay, 50);
-		// assert_eq!(Balances::reserved_balance(3), 50);
+		// Ensure challenges struct update properly
+		assert_eq!(Tcr::challenges(0).total_aye, 100);
+		assert_eq!(Tcr::challenges(0).total_nay, 300 + 50);
+
+		// Ensure balances reserved properly
+		assert_eq!(Balances::reserved_balance(1), 100);
+		assert_eq!(Balances::reserved_balance(2), 300);
+		assert_eq!(Balances::reserved_balance(3), 50);
 });
 }
 

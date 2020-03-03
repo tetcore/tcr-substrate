@@ -154,7 +154,6 @@ decl_module! {
 			T::Currency::reserve(&sender, deposit)
 				.map_err(|_| "Proposer can't afford deposit")?;
 
-			println!("Reserved balance of sender: {:?}", T::Currency::reserved_balance(&sender));
 			// Add the listing to the map
 			<Listings<T>>::insert(&proposed_listing, listing);
 
@@ -218,8 +217,8 @@ decl_module! {
 				listing_id: listing_id.clone(),
 				deposit: deposit.clone(),
 				owner: challenger.clone(),
-				total_aye: 0.into(),
-				total_nay: 0.into(),
+				total_aye: listing.deposit,
+				total_nay: deposit,
 				votes: Vec::new(),
 			};
 
