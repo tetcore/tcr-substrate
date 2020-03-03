@@ -207,9 +207,15 @@ fn nay_vote_works_correctly() {
 }
 
 #[test]
-fn successfully_challenged_listings_are_removed() {
+fn successfully_challenged_proposals_are_removed() {
 	new_test_ext().execute_with(|| {
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
+		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
+		System::note_finished_extrinsics();
+		Tcr::on_finalize(11);
+
+		assert!(!Tcr::registry_contains(1))
 	});
 }
 

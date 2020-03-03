@@ -306,8 +306,7 @@ decl_module! {
 
 			for challenge_id in challenge_ids.iter() {
 				// Grab the challnege and the listing
-				let challenge = <Challenges<T>>::get(&challenge_id);
-				<Challenges<T>>::remove(&challenge_id);
+				let challenge = <Challenges<T>>::take(&challenge_id);
 				let mut listing = <Listings<T>>::get(&challenge.listing_id);
 				let previously_registered = listing.in_registry;
 
@@ -355,5 +354,11 @@ decl_module! {
 				}
 			}
 		}
+	}
+}
+
+impl<T: Trait> Module<T> {
+	pub fn registry_contains(l: ListingIdOf<T>) -> bool {
+		Listings::<T>::exists(l)
 	}
 }
