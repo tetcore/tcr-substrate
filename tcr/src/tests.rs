@@ -220,8 +220,40 @@ fn successfully_challenged_proposals_are_removed() {
 }
 
 #[test]
-fn unsuccessfully_challenged_listings_are_kept() {
+fn successfully_challenged_listings_are_removed() {
 	new_test_ext().execute_with(|| {
 
+		// Propose, Promote, Challenge
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
+		System::set_block_number(20);
+		assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
+
+		// Run on_finalize
+		System::note_finished_extrinsics();
+		Tcr::on_finalize(21);//TODO check block number
+
+		assert!(!Tcr::registry_contains(1))
+	});
+}
+
+#[test]
+fn unsuccessfully_challenged_listings_are_kept() {
+	new_test_ext().execute_with(|| {
+		// Propose, Promote, Challenge
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
+		System::set_block_number(20);
+		assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
+
+		// Aye vote saves listing
+		assert_ok!(Tcr::vote(Origin::signed(3), 1, 400));
+
+		// Run on_finalize
+		System::note_finished_extrinsics();
+		Tcr::on_finalize(21);//TODO check block number
+
+		// Ensure listing is still in the registry
+		assert!(Tcr::registry_contains(1))
 	});
 }
