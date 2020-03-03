@@ -62,6 +62,7 @@ impl Trait for Test {
 	type Currency = balances::Module<Self>;
 }
 type Tcr = Module<Test>;
+type System = system::Module<Test>;
 
 // Builds the genesis config store and sets mock values.
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -158,6 +159,9 @@ fn cant_promote_challenged_proposal() {
 fn can_promote_unchallenged_proposal() {
 	new_test_ext().execute_with(|| {
 
+			assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+			System::set_block_number(20);
+			assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
 	});
 }
 
