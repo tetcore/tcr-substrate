@@ -3,7 +3,7 @@
 
 use codec::{Decode, Encode};
 use sp_std::prelude::*;
-use sp_runtime::traits::{CheckedAdd, CheckedDiv, CheckedMul, Hash, SimpleArithmetic, Member};
+use sp_runtime::traits::CheckedAdd;
 use frame_support::{
 	decl_event, decl_module, decl_storage, dispatch::{DispatchResult, DispatchError}, ensure, Parameter,
 	traits::{ Currency, ReservableCurrency },
@@ -92,7 +92,7 @@ decl_event!(
 	pub enum Event<T>
 		where AccountId = <T as system::Trait>::AccountId,
 		Balance = BalanceOf<T>,
-		ListingId = ListingIdOf<T>
+		ListingId = ListingIdOf<T>,
 	{
 		/// A user has proposed a new listing
 		Proposed(AccountId, ListingId, Balance),
@@ -113,12 +113,8 @@ decl_event!(
 		/// A new, previously un-registered listing has been added to the Registry
 		Accepted(ListingId),
 
-		///
+		/// A previously-registered listing, or a proposla has been rejected.
 		Rejected(ListingId),
-		// When a vote reward is claimed for a challenge.
-		Claimed(AccountId, u32),
-
-		//TODO MAybe the last few events should be Added, Removed, Rejected, Defended
 	}
 );
 
@@ -164,7 +160,7 @@ decl_module! {
 		}
 
 		/// Promote an unchallenged and matured application to the registry
-		fn promote_aplication_to_registry(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
+		fn promote_application_to_registry(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
 			let _ = ensure_signed(origin);
 
 			// Ensure the listing exists
@@ -191,7 +187,7 @@ decl_module! {
 			}
 		}
 
-		// Challenge a listing.
+		/// Challenge a listing
 		fn challenge(origin, listing_id: ListingIdOf<T>, deposit: BalanceOf<T>) -> DispatchResult {
 			let challenger = ensure_signed(origin)?;
 
@@ -232,7 +228,7 @@ decl_module! {
 			NextChallengeId::put(challenge_id + 1);
 			<Challenges<T>>::insert(challenge_id, challenge);
 			<Listings<T>>::insert(&listing_id, listing);
-			<ChallengeExpiry<T>>::append(voting_exp, &vec![challenge_id]);
+			<ChallengeExpiry<T>>::append_or_insert(voting_exp, &vec![challenge_id]);
 
 			// Raise the event.
 			Self::deposit_event(RawEvent::Challenged(challenger, listing_id, challenge_id, deposit));
@@ -288,7 +284,7 @@ decl_module! {
 			Ok(())
 		}
 
-		// Resolves challenges that expire during this block
+		/// Resolves challenges that expire during this block
 		fn on_finalize(now: T::BlockNumber) {
 
 			// If no challenges are ending, return early
@@ -296,6 +292,7 @@ decl_module! {
 				return ();
 			}
 
+			// Take the expiring challenges from the runtime storage
 			let challenge_ids = <ChallengeExpiry<T>>::get(now);
 			<ChallengeExpiry<T>>::remove(now);
 
@@ -303,22 +300,50 @@ decl_module! {
 				// Grab the challnege and the listing
 				let challenge = <Challenges<T>>::get(&challenge_id);
 				<Challenges<T>>::remove(&challenge_id);
-				let mut listing = <Listings<T>>::get(challenge.listing_id);
+				let mut listing = <Listings<T>>::get(&challenge.listing_id);
+				let previously_registered = listing.in_registry;
 
 				// Count the vote
-				let passed = challenge.total_aye > challenge.total_nay;
-				if passed {
+				let listing_is_good = challenge.total_aye > challenge.total_nay;
+				Self::deposit_event(RawEvent::Resolved(challenge.listing_id.clone(), listing_is_good));
+				if listing_is_good {
 					// slash challenger's deposit
+					T::Currency::unreserve(&challenge.owner, challenge.deposit);
+					T::Currency::slash(&challenge.owner, challenge.deposit);
+
 					// add item to registry
+					listing.in_registry = true;
+					Listings::<T>::insert(&challenge.listing_id, listing);
+
+					// Emit event for newly-registered listings
+					if !previously_registered {
+						Self::deposit_event(RawEvent::Accepted(challenge.listing_id));
+					}
+
 				} else {
 					// slash owner's deposit
+					T::Currency::unreserve(&listing.owner, listing.deposit);
+					T::Currency::slash(&listing.owner, listing.deposit);
+
 					// release challenger's deposit
-					// remove item fro mregistry
+					T::Currency::unreserve(&challenge.owner, challenge.deposit);
+
+					// remove item from registry
+					listing.in_registry = false;
+					Listings::<T>::remove(&challenge.listing_id);
+
+					// Emit event for newly de-registered listings
+					if previously_registered {
+						Self::deposit_event(RawEvent::Rejected(challenge.listing_id));
+					}
 				}
 
 				// Loop through votes releasing or slashing as necessary
 				for vote in challenge.votes.iter() {
-					//TODO
+					T::Currency::unreserve(&vote.voter, vote.deposit);
+					if vote.aye_or_nay != listing_is_good {
+						T::Currency::slash(&vote.voter, vote.deposit);
+					}
 				}
 			}
 		}
@@ -462,5 +487,40 @@ mod tests {
 			));
 			assert_ok!(Tcr::challenge(Origin::signed(2), 1, 101));
 		});
+	}
+
+	#[test]
+	fn cant_promote_too_early() {
+
+	}
+
+	#[test]
+	fn cant_promote_challenged_proposal() {
+
+	}
+
+	#[test]
+	fn can_promote_unchallenged_proposal() {
+
+	}
+
+	#[test]
+	fn aye_vote_works_correctly() {
+
+	}
+
+	#[test]
+	fn nay_vote_works_correctly() {
+
+	}
+
+	#[test]
+	fn successfully_challenged_listings_are_removed() {
+
+	}
+
+	#[test]
+	fn unsuccessfully_challenged_listings_are_kept() {
+
 	}
 }
