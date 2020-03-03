@@ -500,7 +500,10 @@ mod tests {
 	#[test]
 	fn cant_promote_challenged_proposal() {
 		new_test_ext().execute_with(|| {
-
+			assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+			assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
+			assert_noop!(Tcr::promote_application(Origin::signed(1), 1),
+			"Cannot promote a challenged listing.");
 		});
 	}
 
