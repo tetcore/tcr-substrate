@@ -63,6 +63,7 @@ impl Trait for Test {
 }
 type Tcr = Module<Test>;
 type System = system::Module<Test>;
+type Balances = balances::Module<Test>;
 
 // Builds the genesis config store and sets mock values.
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -106,6 +107,9 @@ fn should_pass_propose() {
 			1,
 			101
 		));
+
+		// Ensure the proper balance has been reserved
+		// assert_eq!(Balances::reserved_balance(1), 101)
 	});
 }
 
@@ -168,15 +172,27 @@ fn can_promote_unchallenged_proposal() {
 #[test]
 fn aye_vote_works_correctly() {
 	new_test_ext().execute_with(|| {
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
+		assert_ok!(Tcr::vote(Origin::signed(1), 1, true, 50));
 
+		assert_eq!(Tcr::challenges(0).total_aye, 50);
+		assert_eq!(Tcr::challenges(0).total_nay, 0);
+		// assert_eq!(Balances::reserved_balance(1), 101 + 50);
 	});
 }
 
 #[test]
 fn nay_vote_works_correctly() {
 	new_test_ext().execute_with(|| {
+		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
+		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
+		assert_ok!(Tcr::vote(Origin::signed(3), 1, false, 50));
 
-	});
+		assert_eq!(Tcr::challenges(0).total_aye, 0);
+		assert_eq!(Tcr::challenges(0).total_nay, 50);
+		// assert_eq!(Balances::reserved_balance(3), 50);
+});
 }
 
 #[test]

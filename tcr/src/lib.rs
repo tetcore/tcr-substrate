@@ -154,6 +154,7 @@ decl_module! {
 			T::Currency::reserve(&sender, deposit)
 				.map_err(|_| "Proposer can't afford deposit")?;
 
+			println!("Reserved balance of sender: {:?}", T::Currency::reserved_balance(&sender));
 			// Add the listing to the map
 			<Listings<T>>::insert(&proposed_listing, listing);
 
@@ -245,7 +246,7 @@ decl_module! {
 			ensure!(<Listings<T>>::exists(&listing_id), "Listing does not exist.");
 			let challenge_id = <Listings<T>>::get(&listing_id).challenge_id;
 			ensure!(challenge_id != None, "Listing is not challenged.");
-			let challenge_id = challenge_id.unwrap();//.expect("Just checked to ensure it's not None; qed");
+			let challenge_id = challenge_id.expect("Just checked to ensure it's not None; qed");
 
 			// Deduct the deposit for vote.
 			T::Currency::reserve(&voter, deposit)
@@ -259,6 +260,12 @@ decl_module! {
 			};
 			let mut challenge = <Challenges<T>>::get(challenge_id);
 			challenge.votes.push(vote);
+			if vote_bool {
+				challenge.total_aye += deposit;
+			}
+			else {
+				challenge.total_nay += deposit;
+			}
 
 			// Update storage.
 			<Challenges<T>>::insert(challenge_id, challenge);
