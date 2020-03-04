@@ -1,7 +1,7 @@
 use super::*;
 
 use sp_core::H256;
-use sp_runtime::{Perbill, traits::{BlakeTwo256, IdentityLookup}, testing::Header};
+use sp_runtime::{Perbill, traits::{BlakeTwo256, IdentityLookup, OnFinalize}, testing::Header};
 use frame_support::{impl_outer_origin, assert_ok, assert_noop, parameter_types, weights::Weight};
 
 impl_outer_origin! {
@@ -212,7 +212,6 @@ fn successfully_challenged_proposals_are_removed() {
 		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
-		System::note_finished_extrinsics();
 		Tcr::on_finalize(11);
 
 		assert!(!Tcr::registry_contains(1))
@@ -230,8 +229,7 @@ fn successfully_challenged_listings_are_removed() {
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
 		// Run on_finalize
-		System::note_finished_extrinsics();
-		Tcr::on_finalize(21);//TODO check block number
+		Tcr::on_finalize(30);
 
 		assert!(!Tcr::registry_contains(1))
 	});
@@ -247,11 +245,10 @@ fn unsuccessfully_challenged_listings_are_kept() {
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
 		// Aye vote saves listing
-		assert_ok!(Tcr::vote(Origin::signed(3), 1, 400));
+		assert_ok!(Tcr::vote(Origin::signed(3), 1, true, 400));
 
 		// Run on_finalize
-		System::note_finished_extrinsics();
-		Tcr::on_finalize(21);//TODO check block number
+		Tcr::on_finalize(30);
 
 		// Ensure listing is still in the registry
 		assert!(Tcr::registry_contains(1))
