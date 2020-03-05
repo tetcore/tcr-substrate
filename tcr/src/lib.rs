@@ -6,9 +6,9 @@ use sp_std::prelude::*;
 use sp_runtime::traits::CheckedAdd;
 use frame_support::{
 	decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure, Parameter,
-	traits::{ Currency, ReservableCurrency },
+	traits::{ Currency, ReservableCurrency, Get },
 };
-use system::{ensure_signed, ensure_root};
+use system::ensure_signed;
 
 // Read TCR concepts here:
 // https://www.gautamdhameja.com/token-curated-registries-explain-eli5-a5d4cce0ddbe/
@@ -21,6 +21,10 @@ pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 	type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
 	type ListingId: Parameter + Encode + Decode + Default;
+	// The TCR Parameters
+	type MinDeposit: Get<BalanceOf<Self>>;
+	type ApplyStageLen: Get<Self::BlockNumber>;
+	type CommitStageLen: Get<Self::BlockNumber>;
 }
 
 type ChallengeId = u32;
@@ -28,6 +32,7 @@ type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::Ac
 type AccountIdOf<T> = <T as system::Trait>::AccountId;
 type BlockNumberOf<T> = <T as system::Trait>::BlockNumber;
 type ListingIdOf<T> = <T as Trait>::ListingId;
+
 type ListingDetailOf<T> = ListingDetail<BalanceOf<T>, AccountIdOf<T>, BlockNumberOf<T>>;
 type ChallengeDetailOf<T> = ChallengeDetail<<T as Trait>::ListingId, BalanceOf<T>, AccountIdOf<T>, VoteOf<T>>;
 type VoteOf<T> = Vote<AccountIdOf<T>, BalanceOf<T>>;
@@ -64,13 +69,13 @@ pub struct Vote<AccountId, Balance> {
 decl_storage! {
 	trait Store for Module<T: Trait> as Tcr {
 		/// TCR parameter - minimum deposit.
-		MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
-
-		/// TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
-		ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
-
-		/// TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
-		CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
+		// MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
+		//
+		// /// TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
+		// ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
+		//
+		// /// TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
+		// CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
 
 
 		/// All listings and applicants known to the TCR. Inclusion in this map is NOT the same as listing in the registry,
@@ -123,23 +128,26 @@ decl_event!(
 
 decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
+
+		// const MinDeposit: BalanceOf<T> = T::MinDeposit::get();
+		// const ApplyStangeLen: T::BlockNumber = T::ApplyStageLen::get();
+		// const CommitStageLen: T::BlockNumber = T::CommitStageLen::get();
+
 		// Initialize events for this module.
 		fn deposit_event() = default;
 
-		// Propose a listing on the registry.
+		/// Propose a listing on the registry.
 		fn propose(origin, proposed_listing: ListingIdOf<T>, deposit: BalanceOf<T>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let min_deposit = Self::min_deposit().ok_or("Min deposit not set")?;
-			ensure!(deposit >= min_deposit, "deposit should be more than min_deposit");
+			ensure!(deposit >= T::MinDeposit::get(), "deposit should be more than min_deposit");
 
 			ensure!(!<Listings<T>>::exists(&proposed_listing), "Listing already exists");
 
 			// Set application expiry for the listing.
 			// Generating a future timestamp by adding the apply stage length.
 			let now = <system::Module<T>>::block_number();
-			let apply_stage_len = Self::apply_stage_len().ok_or("Apply stage length not set.")?;
-			let app_exp = now.checked_add(&apply_stage_len).ok_or("Overflow when setting application expiry.")?;
+			let app_exp = now.checked_add(&T::ApplyStageLen::get()).ok_or("Overflow when setting application expiry.")?;
 
 			// Create a new listing instance and store it.
 			let listing = ListingDetailOf::<T> {
@@ -203,8 +211,7 @@ decl_module! {
 
 			// Calculate end of voting
 			let now = <system::Module<T>>::block_number();
-			let commit_stage_len = Self::commit_stage_len().ok_or("Commit stage length not set.")?;
-			let voting_exp = now.checked_add(&commit_stage_len).ok_or("Overflow when setting voting expiry.")?;
+			let voting_exp = now.checked_add(&T::CommitStageLen::get()).ok_or("Overflow when setting voting expiry.")?;
 
 			// If the listing was an unchallenged application, that is now irrelevant
 			listing.application_expiry = None;
@@ -276,21 +283,21 @@ decl_module! {
 
 		// Sets the TCR parameters.
 		// Currently only min deposit, apply stage length and commit stage length are supported.
-		fn set_config(
-			origin,
-			min_deposit: BalanceOf<T>,
-			apply_stage_len: T::BlockNumber,
-			commit_stage_len: T::BlockNumber
-		) -> DispatchResult {
-
-			ensure_root(origin)?;
-
-			<MinDeposit<T>>::put(min_deposit);
-			<ApplyStageLen<T>>::put(apply_stage_len);
-			<CommitStageLen<T>>::put(commit_stage_len);
-
-			Ok(())
-		}
+		// fn set_config(
+		// 	origin,
+		// 	min_deposit: BalanceOf<T>,
+		// 	apply_stage_len: T::BlockNumber,
+		// 	commit_stage_len: T::BlockNumber
+		// ) -> DispatchResult {
+		//
+		// 	ensure_root(origin)?;
+		//
+		// 	<MinDeposit<T>>::put(min_deposit);
+		// 	<ApplyStageLen<T>>::put(apply_stage_len);
+		// 	<CommitStageLen<T>>::put(commit_stage_len);
+		//
+		// 	Ok(())
+		// }
 
 		/// Resolves challenges that expire during this block
 		fn on_finalize(now: T::BlockNumber) {

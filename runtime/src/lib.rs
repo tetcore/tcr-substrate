@@ -232,10 +232,20 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
+parameter_types! {
+	pub const MinDeposit: Balance = 100;
+	pub const ApplyStageLen: BlockNumber = 10;
+	pub const CommitStageLen: BlockNumber = 10;
+}
+
 impl tcr::Trait for Runtime {
 	type Event = Event;
 	type Currency = Balances;
 	type ListingId = u32; // This is a registry of integers
+
+	type MinDeposit = MinDeposit;
+	type ApplyStageLen = ApplyStageLen;
+	type CommitStageLen = CommitStageLen;
 }
 
 construct_runtime!(
@@ -253,7 +263,7 @@ construct_runtime!(
 		TransactionPayment: transaction_payment::{Module, Storage},
 		Sudo: sudo,
 		RandomnessCollectiveFlip: randomness_collective_flip::{Module, Call, Storage},
-		Tcr: tcr::{Module, Call, Event<T>, Storage, Config<T>}
+		Tcr: tcr::{Module, Call, Event<T>, Storage}
 	}
 );
 

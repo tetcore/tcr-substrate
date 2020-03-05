@@ -15,7 +15,6 @@ std = [
     'system/std',
 ]
 
-
 [dependencies.serde]
 features = ['derive']
 optional = true
