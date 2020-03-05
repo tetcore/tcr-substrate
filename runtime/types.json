@@ -1,0 +1,29 @@
+{
+  "ListingDetail": {
+    "deposit": "Balance",
+    "owner": "AccountId",
+    "application_expiry": "Option<BlockNumber>",
+    "in_registry": "bool",
+    "challenge_id": "Option<ChallengeId>"
+  },
+  "ListingId": "u32",
+  "ChallengeId": "u32",
+  "BlockNumberOf": "BlockNumber",
+  "ListingIdOf": "ListingId",
+  "ListingDetailOf": "ListingDetail",
+  "ChallengeDetail": {
+	"listing_id": "ListingId",
+	"deposit": "Balance",
+	"owner": "AccountId",
+	"total_aye": "Balance",
+	"total_nay": "Balance",
+	"votes": "Vec<Vote>"
+  },
+  "Vote": {
+	"voter": "AccountId",
+	"aye_or_nay": "bool",
+	"deposit": "Balance"
+  },
+  "VoteOf": "Vote",
+  "ChallengeDetailOf": "ChallengeDetail"
+}
