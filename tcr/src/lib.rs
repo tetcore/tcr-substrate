@@ -68,15 +68,6 @@ pub struct Vote<AccountId, Balance> {
 
 decl_storage! {
 	trait Store for Module<T: Trait> as Tcr {
-		/// TCR parameter - minimum deposit.
-		// MinDeposit get(min_deposit) config(): Option<BalanceOf<T>>;
-		//
-		// /// TCR parameter - apply stage length - deadline for challenging before a listing gets accepted.
-		// ApplyStageLen get(apply_stage_len) config(): Option<T::BlockNumber>;
-		//
-		// /// TCR parameter - commit stage length - deadline for voting before a challenge gets resolved.
-		// CommitStageLen get(commit_stage_len) config(): Option<T::BlockNumber>;
-
 
 		/// All listings and applicants known to the TCR. Inclusion in this map is NOT the same as listing in the registry,
 		/// because this map also includes new applicants (some of which are challenged)
@@ -280,24 +271,6 @@ decl_module! {
 			Self::deposit_event(RawEvent::Voted(voter, challenge_id, vote_bool, deposit));
 			Ok(())
 		}
-
-		// Sets the TCR parameters.
-		// Currently only min deposit, apply stage length and commit stage length are supported.
-		// fn set_config(
-		// 	origin,
-		// 	min_deposit: BalanceOf<T>,
-		// 	apply_stage_len: T::BlockNumber,
-		// 	commit_stage_len: T::BlockNumber
-		// ) -> DispatchResult {
-		//
-		// 	ensure_root(origin)?;
-		//
-		// 	<MinDeposit<T>>::put(min_deposit);
-		// 	<ApplyStageLen<T>>::put(apply_stage_len);
-		// 	<CommitStageLen<T>>::put(commit_stage_len);
-		//
-		// 	Ok(())
-		// }
 
 		/// Resolves challenges that expire during this block
 		fn on_finalize(now: T::BlockNumber) {
