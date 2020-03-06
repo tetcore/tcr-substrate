@@ -168,6 +168,7 @@ fn can_promote_unchallenged_proposal() {
 			assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
 			System::set_block_number(20);
 			assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+			assert!(Tcr::listings(1).in_registry);
 	});
 }
 

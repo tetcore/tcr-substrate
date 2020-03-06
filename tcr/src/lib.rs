@@ -181,7 +181,7 @@ decl_module! {
 
 			// Mutate the listing, and make the promotion
 			listing.application_expiry = None;
-			// listing.in_registry = true;
+			listing.in_registry = true;
 			<Listings<T>>::insert(&listing_id, listing);
 
 			// Raise the event
