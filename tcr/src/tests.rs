@@ -54,12 +54,18 @@ impl balances::Trait for Test {
 	type TransferPayment = ();
 }
 parameter_types! {
-	pub const MinimumPeriod: u64 = 5;
+	pub const MinDeposit: u64 = 100;
+	pub const ApplyStageLen: u64 = 10;
+	pub const CommitStageLen: u64 = 10;
 }
 impl Trait for Test {
 	type Event = ();
 	type ListingId = u32;
 	type Currency = balances::Module<Self>;
+
+	type MinDeposit = MinDeposit;
+	type ApplyStageLen = ApplyStageLen;
+	type CommitStageLen = CommitStageLen;
 }
 type Tcr = Module<Test>;
 type System = system::Module<Test>;
@@ -78,12 +84,6 @@ fn new_test_ext() -> sp_io::TestExternalities {
 			(4, 1000_000),
 		],
 		vesting: vec![],
-	}.assimilate_storage(&mut t).unwrap();
-
-	GenesisConfig::<Test> {
-		min_deposit: 100,
-		apply_stage_len: 10,
-		commit_stage_len: 10,
 	}.assimilate_storage(&mut t).unwrap();
 
 	t.into()
