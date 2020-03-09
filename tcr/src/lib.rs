@@ -263,8 +263,6 @@ decl_module! {
 			for listing_id in listing_ids.iter() {
 				// Grab the listing
 				let mut listing = <Listings<T>>::get(&listing_id);
-				println!("a");
-				println!("Application expiry is {:?}", listing.application_expiry);
 
 				// See whether we're here because of application expiry
 				if listing.application_expiry == Some(now) {
@@ -344,7 +342,6 @@ impl<T: Trait> Module<T> {
 			}
 
 		} else {
-			println!("d");
 			// slash owner's deposit
 			T::Currency::unreserve(&listing.owner, listing.deposit);
 			T::Currency::slash(&listing.owner, listing.deposit);
