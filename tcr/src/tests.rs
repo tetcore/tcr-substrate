@@ -143,31 +143,12 @@ fn should_pass_challenge() {
 }
 
 #[test]
-fn cant_promote_too_early() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
-		assert_noop!(Tcr::promote_application(Origin::signed(1), 1),
-		"Too early to promote this application.");
-	});
-}
-
-#[test]
-fn cant_promote_challenged_proposal() {
-	new_test_ext().execute_with(|| {
-		assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
-		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
-		assert_noop!(Tcr::promote_application(Origin::signed(1), 1),
-		"Cannot promote a challenged listing.");
-	});
-}
-
-#[test]
-fn can_promote_unchallenged_proposal() {
+fn promotion_works() {
 	new_test_ext().execute_with(|| {
 
 			assert_ok!(Tcr::propose(Origin::signed(1), 1, 101));
-			System::set_block_number(20);
-			assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+			System::set_block_number(11);
+			Tcr::on_finalize(11);
 			assert!(Tcr::listings(1).in_registry);
 	});
 }
@@ -223,14 +204,19 @@ fn successfully_challenged_proposals_are_removed() {
 fn successfully_challenged_listings_are_removed() {
 	new_test_ext().execute_with(|| {
 
-		// Propose, Promote, Challenge
+		// Propose
 		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
-		System::set_block_number(20);
-		assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+
+		// Promote
+		System::set_block_number(11);
+		Tcr::on_finalize(11);
+
+		// Challenge
+		System::set_block_number(12);
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
 		// Run on_finalize
-		Tcr::on_finalize(30);
+		Tcr::on_finalize(22);
 
 		assert!(!Tcr::registry_contains(1))
 	});
@@ -239,17 +225,22 @@ fn successfully_challenged_listings_are_removed() {
 #[test]
 fn unsuccessfully_challenged_listings_are_kept() {
 	new_test_ext().execute_with(|| {
-		// Propose, Promote, Challenge
+		// Propose
 		assert_ok!(Tcr::propose(Origin::signed(1), 1, 100));
-		System::set_block_number(20);
-		assert_ok!(Tcr::promote_application(Origin::signed(1), 1));
+
+		// Promote
+		System::set_block_number(11);
+		Tcr::on_finalize(11);
+
+		// Challenge
+		System::set_block_number(12);
 		assert_ok!(Tcr::challenge(Origin::signed(2), 1, 300));
 
 		// Aye vote saves listing
 		assert_ok!(Tcr::vote(Origin::signed(3), 1, true, 400));
 
 		// Run on_finalize
-		Tcr::on_finalize(30);
+		Tcr::on_finalize(22);
 
 		// Ensure listing is still in the registry
 		assert!(Tcr::registry_contains(1))

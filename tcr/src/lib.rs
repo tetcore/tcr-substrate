@@ -20,7 +20,7 @@ mod tests;
 pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 	type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
-	type ListingId: Parameter + Encode + Decode + Default;
+	type ListingId: Parameter + Encode + Decode + Default + Copy;
 	// The TCR Parameters
 	type MinDeposit: Get<BalanceOf<Self>>;
 	type ApplyStageLen: Get<Self::BlockNumber>;
@@ -79,10 +79,12 @@ decl_storage! {
 		/// The first unused challenge Id. Will become the Id of the next challenge when it is open.
 		NextChallengeId get(next_challenge_id): ChallengeId;
 
-		/// Mapping from the blocknumber when a challenge expires to its challenge Id. This is used to
-		/// automatically resolve challenges in `on_finalize`. This storage item could be omitted if
-		/// settling challenges were a mnaully triggered process.
-		ChallengeExpiry get(challenge_expiry): map BlockNumberOf<T> => Vec<ChallengeId>;
+		/// Mapping from the blocknumber when a listing may need a status update to the Listing Id
+		/// tht may need the update. This is used to automatically resolve challenges and promote
+		/// unchallenged listings in `on_finalize`. Not all entries in this map will actually need
+		/// an update. For example, an application that has been challenged will not actually be
+		/// updated at its original application expiry.
+		ListingsToUpdate get(challenge_expiry): map BlockNumberOf<T> => Vec<T::ListingId>;
 	}
 }
 
@@ -153,39 +155,12 @@ decl_module! {
 			T::Currency::reserve(&sender, deposit)
 				.map_err(|_| "Proposer can't afford deposit")?;
 
-			// Add the listing to the map
+			// Add the listing to the maps
 			<Listings<T>>::insert(&proposed_listing, listing);
+			<ListingsToUpdate<T>>::append_or_insert(app_exp, &vec![proposed_listing]);
 
 			// Raise the event.
 			Self::deposit_event(RawEvent::Proposed(sender, proposed_listing, deposit));
-			Ok(())
-		}
-
-		/// Promote an unchallenged and matured application to the registry
-		fn promote_application(origin, listing_id: ListingIdOf<T>) -> DispatchResult {
-			let _ = ensure_signed(origin);
-
-			// Ensure the listing exists
-			ensure!(<Listings<T>>::exists(&listing_id), "No such application to promote");
-
-			// Grab the listing from strage
-			let mut listing = <Listings<T>>::get(&listing_id);
-
-			// Ensure the listing is an unchallenged application ready for promotion
-			ensure!(listing.challenge_id == None, "Cannot promote a challenged listing.");
-			ensure!(listing.application_expiry != None, "Cannot promote a listing that is not an application.");
-
-			let expiry = listing.application_expiry.expect("Just checked that expiry is some; qed");
-			let now = <system::Module<T>>::block_number();
-			ensure!(expiry <= now, "Too early to promote this application.");
-
-			// Mutate the listing, and make the promotion
-			listing.application_expiry = None;
-			listing.in_registry = true;
-			<Listings<T>>::insert(&listing_id, listing);
-
-			// Raise the event
-			Self::deposit_event(RawEvent::Accepted(listing_id));
 			Ok(())
 		}
 
@@ -229,7 +204,7 @@ decl_module! {
 			NextChallengeId::put(challenge_id + 1);
 			<Challenges<T>>::insert(challenge_id, challenge);
 			<Listings<T>>::insert(&listing_id, listing);
-			<ChallengeExpiry<T>>::append_or_insert(voting_exp, &vec![challenge_id]);
+			<ListingsToUpdate<T>>::append_or_insert(voting_exp, &vec![listing_id]);
 
 			// Raise the event.
 			Self::deposit_event(RawEvent::Challenged(challenger, listing_id, challenge_id, deposit));
@@ -276,70 +251,123 @@ decl_module! {
 		/// Resolves challenges that expire during this block
 		fn on_finalize(now: T::BlockNumber) {
 
-			// If no challenges are ending, return early
-			if !<ChallengeExpiry<T>>::exists(now) {
+			// If nothing needs updated, return early
+			if !<ListingsToUpdate<T>>::exists(now) {
 				return ();
 			}
 
-			// Take the expiring challenges from the runtime storage
-			let challenge_ids = <ChallengeExpiry<T>>::get(now);
-			<ChallengeExpiry<T>>::remove(now);
+			// Take the listings in question from the runtime storage
+			let listing_ids = <ListingsToUpdate<T>>::get(now);
+			<ListingsToUpdate<T>>::remove(now);
 
-			for challenge_id in challenge_ids.iter() {
-				// Grab the challnege and the listing
-				let challenge = <Challenges<T>>::take(&challenge_id);
-				let mut listing = <Listings<T>>::get(&challenge.listing_id);
-				let previously_registered = listing.in_registry;
+			for listing_id in listing_ids.iter() {
+				// Grab the listing
+				let mut listing = <Listings<T>>::get(&listing_id);
+				println!("a");
+				println!("Application expiry is {:?}", listing.application_expiry);
 
-				// Count the vote
-				let listing_is_good = challenge.total_aye > challenge.total_nay;
-				Self::deposit_event(RawEvent::Resolved(challenge.listing_id.clone(), listing_is_good));
-				if listing_is_good {
-					// slash challenger's deposit
-					T::Currency::unreserve(&challenge.owner, challenge.deposit);
-					T::Currency::slash(&challenge.owner, challenge.deposit);
-
-					// add item to registry
-					listing.in_registry = true;
-					Listings::<T>::insert(&challenge.listing_id, listing);
-
-					// Emit event for newly-registered listings
-					if !previously_registered {
-						Self::deposit_event(RawEvent::Accepted(challenge.listing_id));
+				// See whether we're here because of application expiry
+				if listing.application_expiry == Some(now) {
+					// See if the application has gone unchallenged
+					if listing.challenge_id == None {
+						Self::promote_application(*listing_id, &mut listing);
 					}
-
-				} else {
-					// slash owner's deposit
-					T::Currency::unreserve(&listing.owner, listing.deposit);
-					T::Currency::slash(&listing.owner, listing.deposit);
-
-					// release challenger's deposit
-					T::Currency::unreserve(&challenge.owner, challenge.deposit);
-
-					// remove item from registry
-					listing.in_registry = false;
-					Listings::<T>::remove(&challenge.listing_id);
-
-					// Emit event for newly de-registered listings
-					if previously_registered {
-						Self::deposit_event(RawEvent::Rejected(challenge.listing_id));
+					else {
+						// Some listings will have been marked for update at this block because their
+						// application would have expired now, but have been challenged in the meantime.
+						listing.application_expiry = None;
 					}
 				}
-
-				// Loop through votes releasing or slashing as necessary
-				for vote in challenge.votes.iter() {
-					T::Currency::unreserve(&vote.voter, vote.deposit);
-					if vote.aye_or_nay != listing_is_good {
-						T::Currency::slash(&vote.voter, vote.deposit);
+				else {
+					// Make sure a challenge is epiring
+					match listing.challenge_id {
+						Some(_) => {
+							Self::settle_challenge(*listing_id, &mut listing);
+						}
+						None => { /* Nothing to do. Happens when challenge resolved before application expiry */}
 					}
 				}
 			}
+
+			// Return
+			()
 		}
 	}
 }
 
 impl<T: Trait> Module<T> {
 	pub fn registry_contains(l: ListingIdOf<T>) -> bool {
-		Listings::<T>::exists(l)
+		if Listings::<T>::exists(l) {
+			Listings::<T>::get(l).in_registry
+		}
+		else {
+			false
+		}
+	}
+
+	fn promote_application(listing_id: ListingIdOf<T>, listing: &mut ListingDetailOf<T>) {
+
+			// Mutate the listing, and make the promotion
+			listing.application_expiry = None;
+			listing.in_registry = true;
+			<Listings<T>>::insert(&listing_id, listing);
+
+			// Raise the event
+			Self::deposit_event(RawEvent::Accepted(listing_id));
+	}
+
+	fn settle_challenge(listing_id: ListingIdOf<T>, listing: &mut ListingDetailOf<T>) {
+
+		// Note whether the listing was previously registered, for event emission
+		// (if not, it is a challenged application)
+		let previously_registered = listing.in_registry;
+
+		// Lookup challenge and count the vote
+		let challenge_id = Listings::<T>::get(listing_id).challenge_id.expect("Confirmed a challenge existed before calling; qed");
+		let challenge = Challenges::<T>::get(challenge_id);
+		let listing_is_good = challenge.total_aye > challenge.total_nay;
+
+		Self::deposit_event(RawEvent::Resolved(challenge.listing_id.clone(), listing_is_good));
+		if listing_is_good {
+			// slash challenger's deposit
+			T::Currency::unreserve(&challenge.owner, challenge.deposit);
+			T::Currency::slash(&challenge.owner, challenge.deposit);
+
+			// add item to registry
+			listing.in_registry = true;
+			listing.challenge_id = None;
+			Listings::<T>::insert(listing_id, listing);
+
+			// Emit event for newly-registered listings
+			if !previously_registered {
+				Self::deposit_event(RawEvent::Accepted(challenge.listing_id));
+			}
+
+		} else {
+			println!("d");
+			// slash owner's deposit
+			T::Currency::unreserve(&listing.owner, listing.deposit);
+			T::Currency::slash(&listing.owner, listing.deposit);
+
+			// release challenger's deposit
+			T::Currency::unreserve(&challenge.owner, challenge.deposit);
+
+			// remove item from registry
+			listing.in_registry = false;
+			Listings::<T>::remove(&challenge.listing_id);
+
+			// Emit event for newly de-registered listings
+			if previously_registered {
+				Self::deposit_event(RawEvent::Rejected(challenge.listing_id));
+			}
+		}
+
+		// Loop through votes releasing or slashing as necessary
+		for vote in challenge.votes.iter() {
+			T::Currency::unreserve(&vote.voter, vote.deposit);
+			if vote.aye_or_nay != listing_is_good {
+				T::Currency::slash(&vote.voter, vote.deposit);
+			}
+		}
 	}
 }
