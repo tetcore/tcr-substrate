@@ -1,4 +1,4 @@
-# Substrate - Token Curated Registries
+# Tetcore - Token Curated Registries
 
 An implementation of (a subset of) [Token Curated Registries](https://medium.com/@ilovebagels/token-curated-registries-1-0-61a232f8dac7) (TCR) as a [Parity Substrate](https://www.parity.io/substrate/) runtime. Built using [substrate-node-template](https://github.com/paritytech/substrate/tree/master/node-template) codebase.
 
